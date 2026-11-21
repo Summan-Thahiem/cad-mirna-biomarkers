@@ -103,6 +103,14 @@ python scripts/jaccard_index.py
 
 Results are written to `results/`.
 
+The association rule script defaults to the settings used in the paper (minimum support 0.02, minimum lift 1.0, top 20 pairwise rules). You can change them from the command line, for example to test a stricter support threshold:
+
+```bash
+python scripts/association_rule_mining.py --min-support 0.03 --top-n 30 --out results/support_0.03
+```
+
+Run `python scripts/association_rule_mining.py --help` to see all options.
+
 ### Notebook
 
 The notebook was written for Google Colab and reads the data from Google Drive. To run it, open it in Colab, upload `data/mirnas_data_updated_unique.xlsx` to your Drive, and set `data_path` to that file. The notebook keeps miRNA names exactly as they appear in the spreadsheet, including spaces after commas, so its association rules differ slightly from the script's.
