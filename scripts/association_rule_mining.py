@@ -12,8 +12,19 @@ Outputs (written to results/):
 
 Run from the repository root:
     python scripts/association_rule_mining.py
+
+Options (defaults match the published analysis):
+    --min-support  minimum support for frequent itemsets (default 0.02)
+    --min-lift     minimum lift for association rules (default 1.0)
+    --top-n        number of pairwise rules to save and plot (default 20)
+    --data         path to the gene-miRNA Excel file
+    --out          output directory
+
+Example:
+    python scripts/association_rule_mining.py --min-support 0.03 --top-n 30
 """
 
+import argparse
 from pathlib import Path
 
 import matplotlib
@@ -49,39 +60,64 @@ def joined(items) -> str:
     return ", ".join(sorted(items))
 
 
-def main() -> None:
-    OUT.mkdir(exist_ok=True)
-    matrix = build_binary_matrix(DATA)
-    print(f"Binary matrix: {matrix.shape[0]} genes x {matrix.shape[1]} miRNAs")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Mine frequent miRNA itemsets and association rules from gene-miRNA target data."
+    )
+    parser.add_argument("--min-support", type=float, default=MIN_SUPPORT,
+                        help=f"minimum support for frequent itemsets (default {MIN_SUPPORT})")
+    parser.add_argument("--min-lift", type=float, default=MIN_LIFT,
+                        help=f"minimum lift for association rules (default {MIN_LIFT})")
+    parser.add_argument("--top-n", type=int, default=TOP_N_PAIRS,
+                        help=f"number of pairwise rules to save and plot (default {TOP_N_PAIRS})")
+    parser.add_argument("--data", type=Path, default=DATA,
+                        help="path to the gene-miRNA Excel file")
+    parser.add_argument("--out", type=Path, default=OUT,
+                        help="output directory")
+    args = parser.parse_args()
+    if not 0 < args.min_support <= 1:
+        parser.error("--min-support must be between 0 and 1")
+    if args.top_n < 1:
+        parser.error("--top-n must be at least 1")
+    return args
 
-    itemsets = apriori(matrix, min_support=MIN_SUPPORT, use_colnames=True)
-    rules = association_rules(itemsets, metric="lift", min_threshold=MIN_LIFT)
+
+def main() -> None:
+    args = parse_args()
+    out = args.out
+    out.mkdir(parents=True, exist_ok=True)
+    matrix = build_binary_matrix(args.data)
+    print(f"Binary matrix: {matrix.shape[0]} genes x {matrix.shape[1]} miRNAs")
+    print(f"Settings: min support {args.min_support}, min lift {args.min_lift}, top {args.top_n} pairs")
+
+    itemsets = apriori(matrix, min_support=args.min_support, use_colnames=True)
+    rules = association_rules(itemsets, metric="lift", min_threshold=args.min_lift)
     print(f"Frequent itemsets: {len(itemsets)}  Association rules: {len(rules)}")
 
     itemsets_out = itemsets.assign(
         itemsets=itemsets["itemsets"].apply(joined),
         size=itemsets["itemsets"].apply(len),
     ).sort_values(["size", "support"], ascending=[False, False])
-    itemsets_out.to_csv(OUT / "frequent_itemsets.csv", index=False)
+    itemsets_out.to_csv(out / "frequent_itemsets.csv", index=False)
 
     rules_out = rules.assign(
         antecedents=rules["antecedents"].apply(joined),
         consequents=rules["consequents"].apply(joined),
     )[["antecedents", "consequents", "support", "confidence", "lift"]]
     rules_out = rules_out.sort_values("lift", ascending=False)
-    rules_out.to_csv(OUT / "association_rules.csv", index=False)
+    rules_out.to_csv(out / "association_rules.csv", index=False)
 
     # One-to-one rules (single miRNA -> single miRNA), strongest first
     pairwise = rules_out[
         ~rules_out["antecedents"].str.contains(",")
         & ~rules_out["consequents"].str.contains(",")
     ]
-    pairwise.head(TOP_N_PAIRS).to_csv(OUT / "top_pairwise_rules.csv", index=False)
+    pairwise.head(args.top_n).to_csv(out / "top_pairwise_rules.csv", index=False)
     print("\nTop pairwise rules by lift:")
     print(pairwise.head(10).to_string(index=False))
 
     # Heatmap of lift values for the strongest pairwise rules
-    top = pairwise.head(TOP_N_PAIRS)
+    top = pairwise.head(args.top_n)
     heat = top.pivot_table(index="antecedents", columns="consequents", values="lift")
     plt.figure(figsize=(11, 9))
     sns.heatmap(heat, annot=True, fmt=".1f", cmap="YlGnBu", linewidths=0.5,
@@ -90,8 +126,8 @@ def main() -> None:
     plt.xlabel("Consequent miRNA")
     plt.ylabel("Antecedent miRNA")
     plt.tight_layout()
-    plt.savefig(OUT / "lift_heatmap.png", dpi=200)
-    print(f"\nResults written to {OUT}")
+    plt.savefig(out / "lift_heatmap.png", dpi=200)
+    print(f"\nResults written to {out}")
 
 
 if __name__ == "__main__":
